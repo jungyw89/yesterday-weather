@@ -1,0 +1,12 @@
+const outerItems=['가디건','재킷','코트','패딩'];
+export function shirt(type='재킷') {
+ const coat=outerItems.includes(type), pants=['긴바지','긴 청바지','반바지'].includes(type);
+ let shape;
+ if(pants)shape=`<path d="M24 10H56L61 ${type==='반바지'?49:76}H45L40 35 35 ${type==='반바지'?49:76}H19Z" fill="${type==='긴 청바지'?'#a9bdc9':'#c7c5b1'}"/><path d="M24 18H56M40 10V32M26 20q0 10-5 11m33-11q0 10 4 11" fill="none"/>`;
+ else if(type==='치마')shape='<path d="M27 13H53L66 71H14Z" fill="#c8b5a8"/><path d="M27 21H53M31 23 27 65M49 23l4 42" fill="none"/>';
+ else if(type==='원피스')shape='<path d="m29 10-10 8 8 17-13 40h52L53 35l8-17-10-8q-11 12-22 0Z" fill="#c1cbae"/><path d="M27 35H53"/>';
+ else shape=`<path d="M28 10 17 16 ${type==='반팔'?'5 32 17 40 23 32':'5 60 17 65 24 37'} 24 76H56V${type==='반팔'?'32l7 8 12-8-12-16':'37l7 28 12-5-12-44'}L52 10Q40 17 28 10Z" fill="${coat?'#d8c39c':type==='니트'?'#cbbdad':'#c2cfb4'}"/>${coat?'<path d="M40 16V76M29 11l11 18-12 6 2-15m21-9L40 29l12 6-2-15" fill="#e9d7b6"/><path d="M27 52h9m8 0h9"/><circle cx="43" cy="44" r="1"/><circle cx="43" cy="60" r="1"/>':'<path d="M29 11q11 16 22 0M26 70H54" fill="none"/>'}`;
+ return `<svg viewBox="0 0 80 85" aria-hidden="true"><g stroke="#52665b" stroke-width="1.25" stroke-linejoin="round">${shape}</g></svg>`;
+}
+export function face(type){const c={cold:'#d6e4e8',ok:'#e0e7c8',hot:'#f1cfad'}[type];return `<svg viewBox="0 0 60 60" aria-hidden="true"><circle cx="30" cy="30" r="28" fill="${c}"/><circle cx="22" cy="25" r="2" fill="#243c36"/><circle cx="38" cy="25" r="2" fill="#243c36"/>${type==='hot'?'<ellipse cx="18" cy="33" rx="5" ry="3" fill="#d99178"/><ellipse cx="42" cy="33" rx="5" ry="3" fill="#d99178"/><ellipse cx="30" cy="37" rx="4" ry="5" fill="#243c36"/>':type==='cold'?'<path d="m19 37 5-3 5 4 5-4 6 3" fill="none" stroke="#243c36" stroke-width="2.5"/>':'<path d="M20 33q10 16 20 0" fill="none" stroke="#243c36" stroke-width="2.5"/>'}</svg>`;}
+export function sky(rain=false){return `<svg viewBox="0 0 160 170" aria-hidden="true"><circle cx="99" cy="43" r="34" fill="#e7b75a"/><circle cx="99" cy="43" r="25" fill="#f8d883"/><path d="M37 116h95c33-2 24-43 0-44C135 18 58 17 59 69c-40-7-55 41-22 47" fill="#b8cdc1" transform="translate(2,7)"/><path d="M37 116h95c33-2 24-43 0-44C135 18 58 17 59 69c-40-7-55 41-22 47" fill="#fffefa"/>${rain?'<path d="m48 137-5 10m36-10-5 10m36-10-5 10" stroke="#6c918b" stroke-width="4" stroke-linecap="round"/>':'<path d="M41 137h86m-62 13h75" stroke="#93aca1" stroke-width="3" stroke-linecap="round"/>'}</svg>`;}
