@@ -7,12 +7,15 @@ let community={status:'idle',rows:[],error:''},shareCount=null;
 import {verdict,quickPresets,quickRecord} from './quick-core.mjs';
 import {slotHours} from './core.mjs';
 import {dayPlan,slotsToAsk,SLOT_NAMES,SLOT_FEELS} from './day-core.mjs';
+import {umbrellaPlan,umbrellaShort} from './rain-core.mjs';
+// 우산: 지금(아침 이후면 현재 시각)부터 귀가(저녁 시각)까지
+function umbrellaNow(){if(!weather?.day||stale)return null;const from=Math.max(settings.hour,currentHour()),to=Math.min(23,slotHours(settings).evening??settings.hour+10);return from>to?null:umbrellaPlan(weather.day,from,to);}
 const SLOT_SKIP='yesterday-weather-slot-skip-v1';
 import {shareCard} from './share-card.mjs';
 const QUICK_SKIP='yesterday-weather-quick-skip-v1';let quickSel=null,sharing=false;
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const SETTINGS='yesterday-weather-settings-v1',CACHE='yesterday-weather-cache-v2';
+const SETTINGS='yesterday-weather-settings-v1',CACHE='yesterday-weather-cache-v3';
 let settings={...cities[0],hour:8,confirmed:false},records=[],db=null,dbError='',view='today',filter='all',entry='today',draft=null,detailDate='',saving=false,photoBusy=false;
 let weather=null,loading=true,error='',stale=false,fetched=0,requestId=0,installPrompt=null,toastTimer;
 try{const v=JSON.parse(localStorage.getItem(SETTINGS));if(validContext(v))settings={...v,confirmed:!!v.confirmed};}catch{}
@@ -99,7 +102,7 @@ function renderToday(){
   else if(!weather)top=`<section class="card notice" role="alert"><p class="label warn">날씨를 불러오지 못했어요</p><p>${esc(error)}</p><button class="btn-plain" id="retry">다시 확인</button></section>`;
   else top=verdictHTML(r,record,delta)||`<section class="card notice" role="alert"><p class="label warn">${stale?'최신 날씨가 아니에요':'추천을 잠시 보류했어요'}</p><p>${stale?'마지막으로 받은 자료만 보여요. 새 날씨를 확인한 뒤 옷차림을 골라드릴게요.':esc(r.reason)}</p><button class="btn-plain" id="retry-rec">다시 확인</button></section>`;
   const when=fetched?new Intl.DateTimeFormat('ko-KR',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Seoul'}).format(fetched):'';
-  const compare=weather&&!loading?`<div class="group"><div class="row compare"><div><small>어제 ${timeText(settings.hour)}</small><b>${num(y.feels)}°</b></div><span class="arrow">${icon('arrow')}</span><div><small>오늘 ${timeText(settings.hour)}</small><b>${num(w.feels)}°</b></div></div><div class="row chips"><span>기온 ${num(w.temp)}°</span><span>바람 ${num(w.wind)}m/s</span><span>습도 ${num(w.humidity,0)}%</span><span>${r.rain===true?'비 예보':r.rain===false?'비 없음':'비 정보 없음'}</span></div>${['noon','evening'].filter(k=>finite(weather.slots?.today?.[k]?.feels)).map(k=>`<div class="row slot-row"><span>${SLOT_NAMES[k]} ${timeText(weather.slots.today[k].hour)}</span><span class="val">어제 ${num(weather.slots.yesterday?.[k]?.feels)}° → <b>오늘 ${num(weather.slots.today[k].feels)}°</b></span></div>`).join('')}</div><p class="foot">체감온도 비교 · 모델 자료${when?` · ${when} 조회`:''}${stale?' · 오래된 자료':''} · <button class="link" id="now-hour">지금 시각으로 보기</button></p>`:'';
+  const compare=weather&&!loading?`<div class="group"><div class="row compare"><div><small>어제 ${timeText(settings.hour)}</small><b>${num(y.feels)}°</b></div><span class="arrow">${icon('arrow')}</span><div><small>오늘 ${timeText(settings.hour)}</small><b>${num(w.feels)}°</b></div></div><div class="row chips"><span>기온 ${num(w.temp)}°</span><span>바람 ${num(w.wind)}m/s</span><span>습도 ${num(w.humidity,0)}%</span><span>${(()=>{const u=umbrellaNow();return u?{take:'비 예보',maybe:'비 가능성',skip:'비 없음'}[u.level]:r.rain===true?'비 예보':r.rain===false?'비 없음':'비 정보 없음';})()}</span></div>${['noon','evening'].filter(k=>finite(weather.slots?.today?.[k]?.feels)).map(k=>`<div class="row slot-row"><span>${SLOT_NAMES[k]} ${timeText(weather.slots.today[k].hour)}</span><span class="val">어제 ${num(weather.slots.yesterday?.[k]?.feels)}° → <b>오늘 ${num(weather.slots.today[k].feels)}°</b></span></div>`).join('')}</div><p class="foot">체감온도 비교 · 모델 자료${when?` · ${when} 조회`:''}${stale?' · 오래된 자료':''} · <button class="link" id="now-hour">지금 시각으로 보기</button></p>`:'';
   const mine=`<p class="section-title">어제의 나</p><div class="group"><button class="row" id="yesterday-record"><span class="row-main"><b>${record?esc(record.clothes.join(' · ')):'어제 옷차림 남기기'}</b>${record?`<small>아침 ${feelings[record.feeling]||'미입력'}${['noon','evening'].map(k=>record.slots?.[k]?.feeling?` · ${SLOT_NAMES[k]} ${SLOT_FEELS[record.slots[k].feeling]}`:'').join('')}</small>`:'<small>옷과 느낌만 남겨도 충분해요</small>'}</span>${icon('chev')}</button></div>`;
   $('#main').innerHTML=`<header class="large"><h1>오늘</h1><p class="sub">${dateLabel(day.today)}</p>${!settings.confirmed?`<p class="sub small">${esc(settings.name)}은 기본 지역이에요 · <button class="link" id="confirm-region">내 지역 선택</button></p>`:''}</header>${top}${compare}${quickHTML()}${communityCardHTML()}${mine}${dbError?`<p class="form-error" role="alert">${esc(dbError)}</p>`:''}`;
   bind('#retry',()=>loadWeather(true));bind('#retry-rec',()=>loadWeather(true));bind('#confirm-region',()=>openCompareSheet());
@@ -109,7 +112,7 @@ const LEVEL={personal:'어제 경험 반영',reference:'경험 참고',excluded:
 function verdictHTML(r,record,delta){
   if(loading||stale||!weather)return '';
   const v=verdict(r,record,delta,weather.today?.feels,dates().yesterday);if(!v)return '';
-  return `<section class="card verdict ${v.tone}" aria-label="오늘의 결론"><p class="label">${v.tone==='cold'?icon('down'):v.tone==='warm'?icon('up'):''}${esc(v.headline)}</p><p class="answer">${esc(v.answer)}</p><div class="items">${v.clothes.map(c=>`<span>${shirt(c)}<small>${c}</small></span>`).join('')}</div>${v.rain?`<p class="rain">${icon('umbrella')}우산도 챙겨요 · ${r.rainRange}</p>`:''}${(()=>{const p=dayPlan(r,weather,record,dates().yesterday);return p?`<p class="plan ${p.items.length?'':'calm'}">${icon('clock')}<span>${esc(p.text)}</span></p>`:'';})()}<p class="why"><b>${LEVEL[r.level]||''}</b> ${esc(r.reason)}</p><button class="row action" id="share-card" ${sharing?'disabled':''}>${icon('share')}<span>가족에게 보내기</span>${icon('chev')}</button></section>`;
+  return `<section class="card verdict ${v.tone}" aria-label="오늘의 결론"><p class="label">${v.tone==='cold'?icon('down'):v.tone==='warm'?icon('up'):''}${esc(v.headline)}</p><p class="answer">${esc(v.answer)}</p><div class="items">${v.clothes.map(c=>`<span>${shirt(c)}<small>${c}</small></span>`).join('')}</div>${(()=>{const u=umbrellaNow();return u?`<div class="umbrella ${u.level}">${icon('umbrella')}<div><b>${esc(u.title)}</b><small>${esc(u.detail)}</small>${u.reminder?`<small class="remind">${esc(u.reminder)}</small>`:''}</div></div>`:v.rain?`<p class="rain">${icon('umbrella')}우산도 챙겨요 · ${r.rainRange}</p>`:'';})()}${(()=>{const p=dayPlan(r,weather,record,dates().yesterday);return p?`<p class="plan ${p.items.length?'':'calm'}">${icon('clock')}<span>${esc(p.text)}</span></p>`:'';})()}<p class="why"><b>${LEVEL[r.level]||''}</b> ${esc(r.reason)}</p><button class="row action" id="share-card" ${sharing?'disabled':''}>${icon('share')}<span>가족에게 보내기</span>${icon('chev')}</button></section>`;
 }
 function quickTarget(){const d=dates(),ev=slotHours(settings).evening;const target=Number.isInteger(ev)&&currentHour()>=ev?d.today:d.yesterday;return {date:target,key:target===d.today?'today':'yesterday',word:target===d.today?'오늘':'어제'};}
 function quickHTML(){
@@ -150,7 +153,9 @@ async function saveSlot(slot,feeling){
   catch(e){saving=false;if(view==='today')renderToday();toast(e.message);}
 }
 async function openShare(r,record,delta){
-  if(sharing)return;const v=verdict(r,record,delta,weather?.today?.feels,dates().yesterday);if(!v)return;const plan=dayPlan(r,weather,record,dates().yesterday);v.plan=plan?.items.length?plan.text:'';
+  if(sharing)return;const v=verdict(r,record,delta,weather?.today?.feels,dates().yesterday);if(!v)return;const plan=dayPlan(r,weather,record,dates().yesterday);v.plan=plan?.items.length?plan.text:'';const u=umbrellaNow();v.umbrella=umbrellaShort(u);
+  // 마지막 인사는 우산 > 저녁 추위 > 어제 비교 순으로 (서로 반대말이 나오지 않게)
+  if(u?.level==='take')v.closing=u.reminder?'우산 놓고 오지 말고 다녀와요':'우산 잊지 말고 다녀와요';else if(plan?.items.some(i=>['carry','warmer','rewear'].includes(i.action)))v.closing='겉옷 챙겨서 다녀와요';
   sharing=true;const btn=$('#share-card');if(btn)btn.disabled=true;
   try{
     const out=await shareCard(v,{place:settings.name,dateText:new Intl.DateTimeFormat('ko-KR',{month:'long',day:'numeric',timeZone:'Asia/Seoul'}).format(new Date()),url:location.origin+location.pathname});

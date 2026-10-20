@@ -15,8 +15,8 @@ export async function makeCardBlob(v,{place,dateText}){
   const icons=await Promise.all(v.clothes.map(c=>loadSvg(shirt(c)))),w=Math.min(220,860/icons.length),start=540-w*icons.length/2;
   icons.forEach((img,i)=>g.drawImage(img,start+i*w+(w-180)/2,400,180,191));
   g.fillStyle='#263b33';fitText(g,v.full,840,70,800);g.fillText(v.full,540,720);
-  if(v.rain){g.fillStyle='#476d86';g.font=`700 42px ${FONT}`;g.fillText('☂ 우산도 챙겨요',540,810);}
-  if(v.plan){g.fillStyle='#294b3a';fitText(g,v.plan,860,40,700);g.fillText(v.plan,540,v.rain?870:810);}
+  const rainText=v.umbrella||(v.rain?'☂ 우산도 챙겨요':'');if(rainText){g.fillStyle='#476d86';fitText(g,rainText,880,42,700);g.fillText(rainText,540,810);}
+  if(v.plan){g.fillStyle='#294b3a';fitText(g,v.plan,860,40,700);g.fillText(v.plan,540,rainText?870:810);}
   g.fillStyle='#294b3a';g.font=`800 60px ${FONT}`;g.fillText(v.closing,540,1050);
   g.fillStyle='#294b3a';round(g,300,1170,480,6,3);g.fill();
   g.fillStyle='#68766d';g.font=`600 34px ${FONT}`;g.fillText('기온 말고, 어제. — 어제와 비교해서',540,1250);

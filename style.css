@@ -154,3 +154,11 @@ dialog.sheet .primary{width:100%;margin-top:16px;min-height:50px}
 .slot-q{display:grid;gap:6px;margin-top:10px}.slot-q>span{font-size:13px;font-weight:600;color:var(--label2);margin-left:4px}.quick .slot-q:first-of-type{margin-top:0}
 .row.slot-q{display:grid;gap:8px;margin-top:0}.row.slot-q>span{margin-left:0;font-size:15px;color:var(--label);font-weight:500}
 .segment.mini{margin-top:0}.segment.mini button{font-size:13px;padding:6px 0;min-height:32px}
+/* v7 우산 */
+.umbrella{display:flex;gap:10px;align-items:flex-start;border-radius:12px;padding:10px 12px;margin-bottom:10px;background:var(--fill)}
+.umbrella>.icon{width:24px;height:24px;margin-top:1px}.umbrella div{display:grid;gap:1px}.umbrella b{font-size:16px}.umbrella small{font-size:13px;color:var(--label2)}
+.umbrella.take{background:var(--cold-soft)}.umbrella.take>.icon,.umbrella.take b{color:var(--cold)}
+.umbrella.maybe>.icon{color:var(--cold)}
+.umbrella.skip>.icon{color:var(--label3)}.umbrella.skip b{font-weight:600}
+.umbrella .remind{color:var(--warm);font-weight:600;margin-top:2px}
+.umbrella small,.umbrella b,.plan span,.why{word-break:keep-all}

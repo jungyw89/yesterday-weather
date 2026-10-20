@@ -50,5 +50,5 @@ export function quickRecord({clothes,feeling,settings,yesterday,weatherRow,slotR
 }
 // 가족에게 보내는 문구 (어제 옷 기준 표현은 받는 사람이 모르므로 오늘 옷 전체로)
 export function shareText(v,place,url){
-  return `${place} 오늘 아침, ${v.headline}.\n${v.full}${v.rain?' · 우산도 챙겨요':''}${v.plan?`\n${v.plan}`:''}\n${v.closing}\n\n${url}`;
+  return `${place} 오늘 아침, ${v.headline}.\n${v.full}${v.umbrella?` · ${v.umbrella}`:v.rain?' · 우산도 챙겨요':''}${v.plan?`\n${v.plan}`:''}\n${v.closing}\n\n${url}`;
 }

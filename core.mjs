@@ -27,7 +27,9 @@ export function parseWeather(data,today,hour,slots={noon:null,evening:null}){
   };
   const outlook=read(hour===23?shiftDate(today,1):today,(hour+1)%24);
   const pick=date=>Object.fromEntries(['noon','evening'].map(k=>[k,Number.isInteger(slots[k])?read(date,slots[k]):null]));
-  return {today:read(today,hour),yesterday:read(shiftDate(today,-1),hour),outlook,slots:{today:pick(today),yesterday:pick(shiftDate(today,-1))},timezone:data.timezone||'Asia/Seoul'};
+  // 오늘 시간별 비 (아침 시각부터 자정 전까지) — 우산 판단용
+  const day=Array.from({length:24-hour},(_,i)=>{const r=read(today,hour+i);return {hour:r.hour,rain:r.rain,chance:r.chance};});
+  return {today:read(today,hour),yesterday:read(shiftDate(today,-1),hour),outlook,slots:{today:pick(today),yesterday:pick(shiftDate(today,-1))},day,timezone:data.timezone||'Asia/Seoul'};
 }
 export function experienceLevel(record,settings,today,weather){
   if(!record||record.date!==shiftDate(today,-1)||!record.clothes?.length||!record.feeling)return 'basic';
