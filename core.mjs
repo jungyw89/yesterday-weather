@@ -14,8 +14,10 @@ export function currentHour(now=new Date()){return Number(new Intl.DateTimeForma
 export function validDate(v){return typeof v==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(v)&&finite(new Date(v+'T12:00:00Z').valueOf())&&new Date(v+'T12:00:00Z').toISOString().slice(0,10)===v;}
 export function validContext(v){return v&&finite(v.lat)&&Math.abs(v.lat)<=90&&finite(v.lon)&&Math.abs(v.lon)<=180&&Number.isInteger(v.hour)&&v.hour>=0&&v.hour<24;}
 export function contextEqual(a,b){return !!a&&!!b&&a.lat===b.lat&&a.lon===b.lon&&a.hour===b.hour;}
-export function weatherKey(settings,today){return [settings.lat,settings.lon,today,settings.hour].join('|');}
-export function parseWeather(data,today,hour){
+// 점심·저녁 시각: 아침(설정 시각)보다 늦을 때만 사용
+export function slotHours(settings){const m=settings.hour,n=settings.noonHour??13,e=settings.eveningHour??19;const noon=Number.isInteger(n)&&n>m&&n<24?n:null;const evening=Number.isInteger(e)&&e>(noon??m)&&e<24?e:null;return {noon,evening};}
+export function weatherKey(settings,today){const s=slotHours(settings);return [settings.lat,settings.lon,today,settings.hour,s.noon,s.evening].join('|');}
+export function parseWeather(data,today,hour,slots={noon:null,evening:null}){
   if(!Array.isArray(data?.hourly?.time))throw Error('날씨 자료를 읽지 못했어요. 다시 확인해 주세요.');
   const h=data.hourly;
   const read=(date,at)=>{const index=h.time.indexOf(`${date}T${String(at).padStart(2,'0')}:00`);const row={date,hour:at};
@@ -24,7 +26,8 @@ export function parseWeather(data,today,hour){
     } return row;
   };
   const outlook=read(hour===23?shiftDate(today,1):today,(hour+1)%24);
-  return {today:read(today,hour),yesterday:read(shiftDate(today,-1),hour),outlook,timezone:data.timezone||'Asia/Seoul'};
+  const pick=date=>Object.fromEntries(['noon','evening'].map(k=>[k,Number.isInteger(slots[k])?read(date,slots[k]):null]));
+  return {today:read(today,hour),yesterday:read(shiftDate(today,-1),hour),outlook,slots:{today:pick(today),yesterday:pick(shiftDate(today,-1))},timezone:data.timezone||'Asia/Seoul'};
 }
 export function experienceLevel(record,settings,today,weather){
   if(!record||record.date!==shiftDate(today,-1)||!record.clothes?.length||!record.feeling)return 'basic';
@@ -94,6 +97,8 @@ export function validateBackup(value,today=dates().today){
       if(!['unknown','indoor','outdoor'].includes(e.place)||(e.hour!==null&&(!Number.isInteger(e.hour)||e.hour<0||e.hour>23))||(e.location!==null&&!validContext({...e.location,hour:0})))throw Error('경험 정보가 올바르지 않아요.');
       experience={place:e.place,hour:e.hour,location:e.location?{name:String(e.location.name).slice(0,50),lat:e.location.lat,lon:e.location.lon}:null};
     }
-    return {...r,date:r.date,clothes:[...new Set(r.clothes)],photo:r.photo||null,experience,context:{name:String(r.context.name||'지역 미확인').slice(0,50),lat:r.context.lat,lon:r.context.lon,hour:r.context.hour},schemaVersion:2};
+    const slotFeel=v=>['cold','ok','hot','indoor'].includes(v)?v:null;
+    const slots=r.slots&&typeof r.slots==='object'?{noon:{feeling:slotFeel(r.slots.noon?.feeling)},evening:{feeling:slotFeel(r.slots.evening?.feeling)}}:undefined;
+    return {...r,slots,date:r.date,clothes:[...new Set(r.clothes)],photo:r.photo||null,experience,context:{name:String(r.context.name||'지역 미확인').slice(0,50),lat:r.context.lat,lon:r.context.lon,hour:r.context.hour},schemaVersion:2};
   });
 }

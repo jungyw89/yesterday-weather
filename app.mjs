@@ -1,10 +1,13 @@
 import {cities,groups,feelings,outers,dates,shiftDate,currentHour,validContext,validDate,finite,weatherKey,parseWeather,recommend,validateBackup,RULE_VERSION} from './core.mjs';
 import {shirt,face,sky} from './visuals.mjs';
-import {shareRow,sensitivity,sensitivityText,communityPick,SHARE_DAYS} from './community-core.mjs';
+import {shareRow,shareRows,sensitivity,sensitivityText,communityPick,SHARE_DAYS} from './community-core.mjs';
 import {statsEnabled,setStats,logOpen} from './community.mjs';
 import {communityEnabled,communityMode,hasConsent,setConsent,shareOutfit,unshareOutfit,deleteMyShares,myShareCount,communityRows,clearCommunityCache} from './community.mjs';
 let community={status:'idle',rows:[],error:''},shareCount=null;
 import {verdict,quickPresets,quickRecord} from './quick-core.mjs';
+import {slotHours} from './core.mjs';
+import {dayPlan,slotsToAsk,SLOT_NAMES,SLOT_FEELS} from './day-core.mjs';
+const SLOT_SKIP='yesterday-weather-slot-skip-v1';
 import {shareCard} from './share-card.mjs';
 const QUICK_SKIP='yesterday-weather-quick-skip-v1';let quickSel=null,sharing=false;
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
@@ -54,11 +57,14 @@ async function syncShare(value){
   const save=()=>store('readwrite',st=>st.put(value));
   const unshare=async()=>{if(!value.sharedAt)return '';try{await unshareOutfit(value.date);value.sharedAt=null;await save();shareCount=null;clearCommunityCache();return ' 공유는 취소했어요.';}catch(e){return ` 공유 취소는 실패했어요. ${e.message}`;}};
   if(!value.share||!hasConsent())return unshare();
-  const s=shareRow(value);
+  const s=shareRows(value);
   if(s.skip)return ` 공유는 하지 않았어요: ${s.skip}${await unshare()}`;
-  try{await shareOutfit(s.row);value.sharedAt=new Date().toISOString();await save();shareCount=null;clearCommunityCache();community.status='idle';return ' 익명 공유도 완료했어요.';}
+  try{if(value.sharedAt)await unshareOutfit(value.date);for(const row of s.rows)await shareOutfit(row);value.sharedAt=new Date().toISOString();await save();shareCount=null;clearCommunityCache();community.status='idle';return s.rows.length>1?` 익명 공유도 완료했어요 (${s.rows.length}개 시간대).`:' 익명 공유도 완료했어요.';}
   catch(e){return ` 공유는 실패했어요. ${e.message} 다시 저장하면 재시도해요.`;}
 }
+// 그 날짜의 점심·저녁 모델 체감을 기록에 붙임 (오늘·어제 기록만)
+function attachSlotWeather(v){const d=dates(),key=v.date===d.today?'today':v.date===d.yesterday?'yesterday':null;if(!key||!v.weatherSnapshot||stale||!weather?.slots?.[key])return;const sl={...(v.weatherSnapshot.slots||{})};for(const k of ['noon','evening']){const row=weather.slots[key][k];if(!sl[k]&&finite(row?.feels))sl[k]={hour:row.hour,feels:row.feels};}if(Object.keys(sl).length)v.weatherSnapshot.slots=sl;}
+const slotText=(r,k)=>{const f=r.slots?.[k]?.feeling,t=r.weatherSnapshot?.slots?.[k]?.feels;return f?`${SLOT_FEELS[f]}${finite(t)&&f!=='indoor'?` · ${num(t)}°`:''}`:'미입력';};
 function openDB(){return new Promise((resolve,reject)=>{const r=indexedDB.open('yesterday-weather',1);r.onupgradeneeded=()=>r.result.createObjectStore('records',{keyPath:'date'});r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(Error('기록 저장 공간을 열지 못했어요.'));r.onblocked=()=>reject(Error('다른 앱 탭을 닫고 다시 열어 주세요.'));});}
 function store(mode,op){return new Promise((resolve,reject)=>{if(!db)return reject(Error('이 브라우저에서 기록 저장을 사용할 수 없어요.'));const tx=db.transaction('records',mode),req=op(tx.objectStore('records'));tx.oncomplete=()=>resolve(req?.result);tx.onerror=tx.onabort=()=>reject(Error('기록을 저장하지 못했어요. 저장 공간을 확인해 주세요.'));});}
 async function readRecords(){records=(await store('readonly',s=>s.getAll())).sort((a,b)=>b.date.localeCompare(a.date));}
@@ -79,7 +85,7 @@ async function loadWeather(force=false){
   try{
     const q=new URLSearchParams({latitude:context.lat,longitude:context.lon,timezone:'Asia/Seoul',start_date:date.yesterday,end_date:shiftDate(date.today,1),wind_speed_unit:'ms',hourly:'temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,precipitation_probability,wind_speed_10m,weather_code'});
     const response=await fetch('https://api.open-meteo.com/v1/forecast?'+q,{signal:ctrl.signal});if(!response.ok)throw Error('날씨 서비스에 연결하지 못했어요.');
-    const parsed=parseWeather(await response.json(),date.today,context.hour);if(id!==requestId)return;
+    const parsed=parseWeather(await response.json(),date.today,context.hour,slotHours(context));if(id!==requestId)return;
     if(date.today!==dates().today){loadWeather();return;}
     weather=parsed;fetched=Date.now();try{localStorage.setItem(CACHE,JSON.stringify({key,weather,fetched}));}catch{}
   }catch(e){if(id!==requestId)return;error=e.name==='AbortError'?'연결이 오래 걸리고 있어요. 다시 확인해 주세요.':e.name==='TypeError'?'네트워크에 연결하지 못했어요. 기록은 계속 남길 수 있어요.':e.message;if(cached){weather=cached.weather;fetched=cached.fetched;stale=true;}}
@@ -93,9 +99,9 @@ function renderToday(){
   else if(!weather)top=`<section class="card notice" role="alert"><p class="label warn">날씨를 불러오지 못했어요</p><p>${esc(error)}</p><button class="btn-plain" id="retry">다시 확인</button></section>`;
   else top=verdictHTML(r,record,delta)||`<section class="card notice" role="alert"><p class="label warn">${stale?'최신 날씨가 아니에요':'추천을 잠시 보류했어요'}</p><p>${stale?'마지막으로 받은 자료만 보여요. 새 날씨를 확인한 뒤 옷차림을 골라드릴게요.':esc(r.reason)}</p><button class="btn-plain" id="retry-rec">다시 확인</button></section>`;
   const when=fetched?new Intl.DateTimeFormat('ko-KR',{hour:'2-digit',minute:'2-digit',timeZone:'Asia/Seoul'}).format(fetched):'';
-  const compare=weather&&!loading?`<div class="group"><div class="row compare"><div><small>어제 ${timeText(settings.hour)}</small><b>${num(y.feels)}°</b></div><span class="arrow">${icon('arrow')}</span><div><small>오늘 ${timeText(settings.hour)}</small><b>${num(w.feels)}°</b></div></div><div class="row chips"><span>기온 ${num(w.temp)}°</span><span>바람 ${num(w.wind)}m/s</span><span>습도 ${num(w.humidity,0)}%</span><span>${r.rain===true?'비 예보':r.rain===false?'비 없음':'비 정보 없음'}</span></div></div><p class="foot">체감온도 비교 · 모델 자료${when?` · ${when} 조회`:''}${stale?' · 오래된 자료':''} · <button class="link" id="now-hour">지금 시각으로 보기</button></p>`:'';
-  const mine=`<p class="section-title">어제의 나</p><div class="group"><button class="row" id="yesterday-record"><span class="row-main"><b>${record?esc(record.clothes.join(' · ')):'어제 옷차림 남기기'}</b>${record?`<small>${feelings[record.feeling]||'체감 미입력'} · ${record.experience?.place==='outdoor'?'밖에서':record.experience?.place==='indoor'?'실내에서':'장소 미입력'}</small>`:'<small>옷과 느낌만 남겨도 충분해요</small>'}</span>${icon('chev')}</button></div>`;
-  $('#main').innerHTML=`<header class="large"><h1>오늘</h1><p class="sub">${dateLabel(day.today)}</p>${!settings.confirmed?`<p class="sub small">${esc(settings.name)}은 기본 지역이에요 · <button class="link" id="confirm-region">내 지역 선택</button></p>`:''}</header>${top}${compare}${quickHTML(record)}${communityCardHTML()}${mine}${dbError?`<p class="form-error" role="alert">${esc(dbError)}</p>`:''}`;
+  const compare=weather&&!loading?`<div class="group"><div class="row compare"><div><small>어제 ${timeText(settings.hour)}</small><b>${num(y.feels)}°</b></div><span class="arrow">${icon('arrow')}</span><div><small>오늘 ${timeText(settings.hour)}</small><b>${num(w.feels)}°</b></div></div><div class="row chips"><span>기온 ${num(w.temp)}°</span><span>바람 ${num(w.wind)}m/s</span><span>습도 ${num(w.humidity,0)}%</span><span>${r.rain===true?'비 예보':r.rain===false?'비 없음':'비 정보 없음'}</span></div>${['noon','evening'].filter(k=>finite(weather.slots?.today?.[k]?.feels)).map(k=>`<div class="row slot-row"><span>${SLOT_NAMES[k]} ${timeText(weather.slots.today[k].hour)}</span><span class="val">어제 ${num(weather.slots.yesterday?.[k]?.feels)}° → <b>오늘 ${num(weather.slots.today[k].feels)}°</b></span></div>`).join('')}</div><p class="foot">체감온도 비교 · 모델 자료${when?` · ${when} 조회`:''}${stale?' · 오래된 자료':''} · <button class="link" id="now-hour">지금 시각으로 보기</button></p>`:'';
+  const mine=`<p class="section-title">어제의 나</p><div class="group"><button class="row" id="yesterday-record"><span class="row-main"><b>${record?esc(record.clothes.join(' · ')):'어제 옷차림 남기기'}</b>${record?`<small>아침 ${feelings[record.feeling]||'미입력'}${['noon','evening'].map(k=>record.slots?.[k]?.feeling?` · ${SLOT_NAMES[k]} ${SLOT_FEELS[record.slots[k].feeling]}`:'').join('')}</small>`:'<small>옷과 느낌만 남겨도 충분해요</small>'}</span>${icon('chev')}</button></div>`;
+  $('#main').innerHTML=`<header class="large"><h1>오늘</h1><p class="sub">${dateLabel(day.today)}</p>${!settings.confirmed?`<p class="sub small">${esc(settings.name)}은 기본 지역이에요 · <button class="link" id="confirm-region">내 지역 선택</button></p>`:''}</header>${top}${compare}${quickHTML()}${communityCardHTML()}${mine}${dbError?`<p class="form-error" role="alert">${esc(dbError)}</p>`:''}`;
   bind('#retry',()=>loadWeather(true));bind('#retry-rec',()=>loadWeather(true));bind('#confirm-region',()=>openCompareSheet());
   bindCommunity();bindQuick();bind('#share-card',()=>openShare(r,record,delta));if(communityEnabled&&community.status==='idle')loadCommunity();bind('#now-hour',()=>setSettings({...settings,hour:currentHour()}));bind('#yesterday-record',()=>{entry='today';if(record){detailDate=record.date;navigate('detail');}else startDraft(day.yesterday);});
 }
@@ -103,30 +109,48 @@ const LEVEL={personal:'어제 경험 반영',reference:'경험 참고',excluded:
 function verdictHTML(r,record,delta){
   if(loading||stale||!weather)return '';
   const v=verdict(r,record,delta,weather.today?.feels,dates().yesterday);if(!v)return '';
-  return `<section class="card verdict ${v.tone}" aria-label="오늘의 결론"><p class="label">${v.tone==='cold'?icon('down'):v.tone==='warm'?icon('up'):''}${esc(v.headline)}</p><p class="answer">${esc(v.answer)}</p><div class="items">${v.clothes.map(c=>`<span>${shirt(c)}<small>${c}</small></span>`).join('')}</div>${v.rain?`<p class="rain">${icon('umbrella')}우산도 챙겨요 · ${r.rainRange}</p>`:''}<p class="why"><b>${LEVEL[r.level]||''}</b> ${esc(r.reason)}</p><button class="row action" id="share-card" ${sharing?'disabled':''}>${icon('share')}<span>가족에게 보내기</span>${icon('chev')}</button></section>`;
+  return `<section class="card verdict ${v.tone}" aria-label="오늘의 결론"><p class="label">${v.tone==='cold'?icon('down'):v.tone==='warm'?icon('up'):''}${esc(v.headline)}</p><p class="answer">${esc(v.answer)}</p><div class="items">${v.clothes.map(c=>`<span>${shirt(c)}<small>${c}</small></span>`).join('')}</div>${v.rain?`<p class="rain">${icon('umbrella')}우산도 챙겨요 · ${r.rainRange}</p>`:''}${(()=>{const p=dayPlan(r,weather,record,dates().yesterday);return p?`<p class="plan ${p.items.length?'':'calm'}">${icon('clock')}<span>${esc(p.text)}</span></p>`:'';})()}<p class="why"><b>${LEVEL[r.level]||''}</b> ${esc(r.reason)}</p><button class="row action" id="share-card" ${sharing?'disabled':''}>${icon('share')}<span>가족에게 보내기</span>${icon('chev')}</button></section>`;
 }
-function quickHTML(record){
-  const day=dates();if(record||loading||stale||!weather||!finite(weather.yesterday?.feels)||!db)return '';
-  try{if(localStorage.getItem(QUICK_SKIP)===day.today)return '';}catch{}
-  const presets=quickPresets(weather.yesterday.feels);
-  return `<section id="quick-card"><p class="section-title">어제 뭐 입었어요? <button class="title-link" id="quick-skip">건너뛰기</button></p><div class="card quick"><p class="hint">어제 ${timeText(settings.hour)} ${esc(settings.name)}, 밖에서 기준 · 두 번이면 끝</p><div class="tiles">${presets.map((p,i)=>`<button class="tile ${quickSel===i?'selected':''}" data-preset="${i}" aria-pressed="${quickSel===i}"><i>${p.map(shirt).join('')}</i><span>${p.join(' · ')}</span></button>`).join('')}</div><div class="segment" role="group" aria-label="어제 어땠어요">${Object.entries(feelings).map(([k,t])=>`<button data-quick-feel="${k}" ${quickSel===null||saving?'disabled':''}>${t}</button>`).join('')}</div><button class="btn-plain small" id="quick-other">다른 옷이었어요 · 직접 고르기</button></div></section>`;
+function quickTarget(){const d=dates(),ev=slotHours(settings).evening;const target=Number.isInteger(ev)&&currentHour()>=ev?d.today:d.yesterday;return {date:target,key:target===d.today?'today':'yesterday',word:target===d.today?'오늘':'어제'};}
+function quickHTML(){
+  if(loading||stale||!weather||!db)return '';
+  const q=quickTarget(),rec=records.find(r=>r.date===q.date),row=weather[q.key];
+  if(!rec){
+    if(!finite(row?.feels))return '';
+    try{if(localStorage.getItem(QUICK_SKIP)===dates().today)return '';}catch{}
+    const presets=quickPresets(row.feels);
+    return `<section id="quick-card"><p class="section-title">${q.word} 뭐 입었어요? <button class="title-link" id="quick-skip">건너뛰기</button></p><div class="card quick"><p class="hint">${q.word} ${timeText(settings.hour)} ${esc(settings.name)}, 밖에서 기준 · 두 번이면 끝</p><div class="tiles">${presets.map((p,i)=>`<button class="tile ${quickSel===i?'selected':''}" data-preset="${i}" aria-pressed="${quickSel===i}"><i>${p.map(shirt).join('')}</i><span>${p.join(' · ')}</span></button>`).join('')}</div><div class="segment" role="group" aria-label="${q.word} 아침 어땠어요">${Object.entries(feelings).map(([k,t])=>`<button data-quick-feel="${k}" ${quickSel===null||saving?'disabled':''}>${t}</button>`).join('')}</div><button class="btn-plain small" id="quick-other">다른 옷이었어요 · 직접 고르기</button></div></section>`;
+  }
+  const ask=slotsToAsk(weather,q.key).filter(k=>!rec.slots?.[k]?.feeling);
+  if(!ask.length)return '';
+  try{if(localStorage.getItem(SLOT_SKIP)===q.date)return '';}catch{}
+  return `<section id="slot-card"><p class="section-title">${q.word} 점심·저녁은요? <button class="title-link" id="slot-skip">괜찮아요</button></p><div class="card quick"><p class="hint">같은 옷(${esc(rec.clothes.join(' · '))}) 기준 · 선택이에요. 실내에 있었다면 '실내'를 눌러 주세요.</p>${ask.map(k=>`<div class="slot-q"><span>${SLOT_NAMES[k]} ${timeText(weather.slots[q.key][k].hour)} · ${num(weather.slots[q.key][k].feels)}°</span><div class="segment mini" role="group" aria-label="${SLOT_NAMES[k]} 체감">${Object.entries(SLOT_FEELS).map(([f,t])=>`<button data-qslot="${k}" data-qfeel="${f}" ${saving?'disabled':''}>${t}</button>`).join('')}</div></div>`).join('')}</div></section>`;
 }
 function bindQuick(){
-  const presets=weather&&finite(weather.yesterday?.feels)?quickPresets(weather.yesterday.feels):[];
+  const qrow=weather?.[quickTarget().key],presets=finite(qrow?.feels)?quickPresets(qrow.feels):[];
   $$('[data-preset]').forEach(b=>b.onclick=()=>{quickSel=Number(b.dataset.preset);$$('[data-preset]').forEach(x=>{const on=Number(x.dataset.preset)===quickSel;x.classList.toggle('selected',on);x.setAttribute('aria-pressed',on);});$$('[data-quick-feel]').forEach(x=>x.disabled=false);});
   $$('[data-quick-feel]').forEach(b=>b.onclick=()=>saveQuick(presets[quickSel],b.dataset.quickFeel));
   bind('#quick-skip',()=>{try{localStorage.setItem(QUICK_SKIP,dates().today);}catch{}quickSel=null;renderToday();});
-  bind('#quick-other',()=>{entry='today';startDraft(dates().yesterday);});
+  bind('#slot-skip',()=>{try{localStorage.setItem(SLOT_SKIP,quickTarget().date);}catch{}renderToday();});
+  $$('[data-qslot]').forEach(b=>b.onclick=()=>saveSlot(b.dataset.qslot,b.dataset.qfeel));
+  bind('#quick-other',()=>{entry='today';startDraft(quickTarget().date);});
 }
 async function saveQuick(clothes,feeling){
-  if(!clothes||!db||saving)return;const day=dates();if(records.some(r=>r.date===day.yesterday)){quickSel=null;renderToday();return;}
-  const value=quickRecord({clothes,feeling,settings,yesterday:day.yesterday,weatherRow:weather?.yesterday,fetchedAt:fetched});value.share=communityEnabled&&hasConsent();
+  if(!clothes||!db||saving)return;const q=quickTarget();if(records.some(r=>r.date===q.date)){quickSel=null;renderToday();return;}
+  const value=quickRecord({clothes,feeling,settings,yesterday:q.date,weatherRow:weather?.[q.key],slotRows:weather?.slots?.[q.key],fetchedAt:fetched});value.share=communityEnabled&&hasConsent();
   saving=true;$$('#quick-card button').forEach(b=>b.disabled=true);
-  try{await store('readwrite',s=>s.put(value));const msg=await syncShare(value);await readRecords();saving=false;quickSel=null;if(view==='today')renderToday();window.scrollTo({top:0,behavior:'smooth'});toast('어제 기록으로 오늘 옷차림을 맞췄어요.'+(msg||''));}
+  try{await store('readwrite',s=>s.put(value));const msg=await syncShare(value);await readRecords();saving=false;quickSel=null;if(view==='today')renderToday();toast((q.key==='today'?'오늘 아침을 기록했어요. 내일 추천에 반영돼요.':'어제 기록으로 오늘 옷차림을 맞췄어요.')+(msg||''));}
+  catch(e){saving=false;if(view==='today')renderToday();toast(e.message);}
+}
+async function saveSlot(slot,feeling){
+  if(!db||saving)return;const q=quickTarget(),old=records.find(r=>r.date===q.date);if(!old)return;
+  const value=structuredClone(old);value.slots={noon:{feeling:null},evening:{feeling:null},...(value.slots||{})};value.slots[slot]={feeling};value.updatedAt=new Date().toISOString();attachSlotWeather(value);
+  saving=true;$$('#slot-card button').forEach(b=>b.disabled=true);
+  try{await store('readwrite',s=>s.put(value));const msg=await syncShare(value);await readRecords();saving=false;if(view==='today')renderToday();const done=slotsToAsk(weather,q.key).every(k=>value.slots?.[k]?.feeling);toast((done?`${q.word} 하루 기록 완료! 다음 추천에 반영돼요.`:`${SLOT_NAMES[slot]} 기록했어요.`)+(msg||''));}
   catch(e){saving=false;if(view==='today')renderToday();toast(e.message);}
 }
 async function openShare(r,record,delta){
-  if(sharing)return;const v=verdict(r,record,delta,weather?.today?.feels,dates().yesterday);if(!v)return;
+  if(sharing)return;const v=verdict(r,record,delta,weather?.today?.feels,dates().yesterday);if(!v)return;const plan=dayPlan(r,weather,record,dates().yesterday);v.plan=plan?.items.length?plan.text:'';
   sharing=true;const btn=$('#share-card');if(btn)btn.disabled=true;
   try{
     const out=await shareCard(v,{place:settings.name,dateText:new Intl.DateTimeFormat('ko-KR',{month:'long',day:'numeric',timeZone:'Asia/Seoul'}).format(new Date()),url:location.origin+location.pathname});
@@ -134,11 +158,11 @@ async function openShare(r,record,delta){
   }catch(e){toast('카드를 만들지 못했어요. 다시 시도해 주세요.');}
   finally{sharing=false;const b=$('#share-card');if(b)b.disabled=false;}
 }
-function openCompareSheet(){const d=$('#dialog');d.className='sheet';d.innerHTML=`<div class="sheet-grabber"></div><div class="sheet-title"><h2>비교 기준</h2><button class="sheet-close" id="close-sheet" aria-label="닫기">${icon('x')}</button></div><div class="field"><label for="sheet-city">비교 지역</label><select id="sheet-city">${cityOptions(settings)}</select></div><div class="field"><label for="sheet-hour">어제 · 오늘 같은 시각</label><select id="sheet-hour">${hourOptions(settings.hour)}</select></div><p class="form-note">시간을 바꾸면 양일 모두 함께 바뀌어요.</p><button class="primary" id="apply-sheet">이 기준으로 보기</button>`;d.oncancel=null;$('#close-sheet').onclick=()=>d.close();$('#apply-sheet').onclick=()=>{const c=$('#sheet-city').value==='custom'?settings:cities[Number($('#sheet-city').value)];const next={...c,hour:Number($('#sheet-hour').value),confirmed:true};if(setSettings(next))d.close();};d.showModal();}
+function openCompareSheet(){const d=$('#dialog');d.className='sheet';d.innerHTML=`<div class="sheet-grabber"></div><div class="sheet-title"><h2>비교 기준</h2><button class="sheet-close" id="close-sheet" aria-label="닫기">${icon('x')}</button></div><div class="field"><label for="sheet-city">비교 지역</label><select id="sheet-city">${cityOptions(settings)}</select></div><div class="field"><label for="sheet-hour">어제 · 오늘 같은 시각</label><select id="sheet-hour">${hourOptions(settings.hour)}</select></div><p class="form-note">시간을 바꾸면 양일 모두 함께 바뀌어요.</p><button class="primary" id="apply-sheet">이 기준으로 보기</button>`;d.oncancel=null;$('#close-sheet').onclick=()=>d.close();$('#apply-sheet').onclick=()=>{const c=$('#sheet-city').value==='custom'?settings:cities[Number($('#sheet-city').value)];const next={...settings,...c,hour:Number($('#sheet-hour').value),confirmed:true};if(setSettings(next))d.close();};d.showModal();}
 function cityOptions(value,unknown=false){const index=cities.findIndex(c=>c.lat===value?.lat&&c.lon===value?.lon);return `${unknown?'<option value="unknown">아직 선택하지 않음</option>':''}${index<0&&value?`<option value="custom" selected>${esc(value.name)}</option>`:''}${cities.map((c,i)=>`<option value="${i}" ${i===index?'selected':''}>${c.name}</option>`).join('')}`;}
 function hourOptions(value,unknown=false){return `${unknown?`<option value="unknown" ${value===null?'selected':''}>느낀 시각 미입력</option>`:''}${Array.from({length:24},(_,i)=>`<option value="${i}" ${i===value?'selected':''}>${timeText(i)}</option>`).join('')}`;}
 function setSettings(next,stay=false){try{localStorage.setItem(SETTINGS,JSON.stringify(next));settings=next;if(!stay)view='today';loadWeather();if(stay)render();toast('비교 기준을 바꿨어요');return true;}catch{toast('설정을 저장하지 못했어요. 이전 설정은 유지돼요.');return false;}}
-function startDraft(date){const old=records.find(r=>r.date===date);draft=old?structuredClone(old):{date,clothes:[],feeling:null,photo:null,context:{...settings},createdAt:new Date().toISOString()};draft.experience??={place:'unknown',hour:null,location:null};draft.share??=!old&&hasConsent();draft.existing=!!old;draft.dirty=false;view='outfit';render();window.scrollTo(0,0);}
+function startDraft(date){const old=records.find(r=>r.date===date);draft=old?structuredClone(old):{date,clothes:[],feeling:null,photo:null,context:{...settings},createdAt:new Date().toISOString()};draft.experience??={place:'unknown',hour:null,location:null};draft.slots??={noon:{feeling:null},evening:{feeling:null}};draft.share??=!old&&hasConsent();draft.existing=!!old;draft.dirty=false;view='outfit';render();window.scrollTo(0,0);}
 function recentCombinations(){const seen=new Set();return records.filter(r=>{const key=[...r.clothes].sort().join('|');if(seen.has(key))return false;seen.add(key);return true;}).slice(0,3);}
 function renderOutfit(){
   const recent=recentCombinations();
@@ -149,6 +173,7 @@ ${groups.map(g=>`<p class="section-title small">${g.name}</p><div class="card pa
 <p class="foot" id="selected-summary">${draft.clothes.length?esc(draft.clothes.join(' · ')):'입은 옷을 하나 이상 골라 주세요.'}</p>
 <p class="section-title small">실제로 어땠나요? <button class="title-link" id="clear-feeling">선택 해제</button></p>
 <div class="feel-row">${Object.entries(feelings).map(([key,text])=>`<button class="feel ${draft.feeling===key?'selected':''}" data-feeling="${key}" aria-pressed="${draft.feeling===key}">${face(key)}<b>${text}</b><small>${{cold:'더 입고 싶었어요',ok:'편안했어요',hot:'덜 입고 싶었어요'}[key]}</small></button>`).join('')}</div>
+<p class="section-title small">점심·저녁은요? <em>선택 · 같은 옷 기준</em></p><div class="group">${['noon','evening'].map(k=>`<div class="row slot-q"><span>${SLOT_NAMES[k]} ${timeText(slotHours(settings)[k]??(k==='noon'?13:19))}</span><div class="segment mini" role="group" aria-label="${SLOT_NAMES[k]} 체감">${Object.entries(SLOT_FEELS).map(([f,t])=>`<button data-slot="${k}" data-slot-feel="${f}" class="${draft.slots?.[k]?.feeling===f?'on':''}" aria-pressed="${draft.slots?.[k]?.feeling===f}">${t}</button>`).join('')}</div></div>`).join('')}</div>
 <p class="section-title small">더 맞춰보기 <em>선택</em></p>
 <div class="group"><label class="row">느낀 장소<select id="experience-place" class="row-select">${[['unknown','모르겠어요'],['outdoor','밖에서'],['indoor','실내에서']].map(([v,t])=>`<option value="${v}" ${draft.experience.place===v?'selected':''}>${t}</option>`).join('')}</select></label><label class="row">느낀 시각<select id="experience-hour" class="row-select">${hourOptions(draft.experience.hour,true)}</select></label><label class="row">있었던 지역<select id="experience-city" class="row-select">${cityOptions(draft.experience.location,true)}${!draft.experience.location&&!cities.some(c=>c.lat===settings.lat&&c.lon===settings.lon)?'<option value="saved-location">현재 저장한 위치</option>':''}</select></label><label class="row" for="photo">사진 추가<span class="val">이 기기에만 보관</span>${icon('chev')}</label></div><input id="photo" class="visually-hidden" type="file" accept="image/*"><div id="photo-content">${photoHTML()}</div>
 ${communityEnabled?`<div class="group"><label class="row">익명으로 공유하기<input type="checkbox" class="switch" id="share-toggle" ${draft.share?'checked':''}></label></div><p class="foot">옷·체감·체감온도만 보내요. 체감 평가가 있고 저장할 때 날씨를 확인한 최근 ${SHARE_DAYS}일 이내 기록만 공유돼요.${draft.sharedAt?' 지금 공유 중인 기록이에요.':''}</p>`:''}
@@ -158,6 +183,7 @@ ${communityEnabled?`<div class="group"><label class="row">익명으로 공유하
   $$('[data-feeling]').forEach(b=>b.onclick=()=>{draft.feeling=b.dataset.feeling;draft.dirty=true;updateSelections();});
   $$('[data-recent]').forEach(b=>b.onclick=()=>{draft.clothes=[...recent[Number(b.dataset.recent)].clothes];draft.dirty=true;updateSelections();toast('옷만 불러왔어요. 체감은 직접 골라 주세요.');});
   bind('#clear-feeling',()=>{draft.feeling=null;draft.dirty=true;updateSelections();});
+  $$('[data-slot]').forEach(b=>b.onclick=()=>{const k=b.dataset.slot,f=b.dataset.slotFeel;draft.slots[k]={feeling:draft.slots[k]?.feeling===f?null:f};draft.dirty=true;updateSelections();});
   $('#record-date').onchange=async e=>{const value=e.target.value;if(!validDate(value)||value>dates().today){e.target.value=draft.date;return;}if(draft.dirty&&!await confirmBox('다른 날짜를 열까요?','지금 작성 중인 내용은 취소하고 선택한 날짜의 기록을 열어요.','날짜 변경')){e.target.value=draft.date;return;}startDraft(value);};
   $('#experience-place').onchange=e=>{draft.experience.place=e.target.value;draft.dirty=true;};
   $('#experience-hour').onchange=e=>{draft.experience.hour=e.target.value==='unknown'?null:Number(e.target.value);draft.dirty=true;};
@@ -168,6 +194,7 @@ ${communityEnabled?`<div class="group"><label class="row">익명으로 공유하
 function updateSelections(){
   $$('[data-cloth]').forEach(b=>{const selected=draft.clothes.includes(b.dataset.cloth);b.classList.toggle('selected',selected);b.setAttribute('aria-pressed',selected);});
   $$('[data-feeling]').forEach(b=>{const selected=draft.feeling===b.dataset.feeling;b.classList.toggle('selected',selected);b.setAttribute('aria-pressed',selected);});
+  $$('[data-slot]').forEach(b=>{const on=draft.slots?.[b.dataset.slot]?.feeling===b.dataset.slotFeel;b.classList.toggle('on',on);b.setAttribute('aria-pressed',on);});
   $('#selected-summary').textContent=draft.clothes.length?draft.clothes.join(' · '):'입은 옷을 하나 이상 골라 주세요.';
   $('#save-record').disabled=!draft.clothes.length||photoBusy||saving;$('#save-record').innerHTML=`${draft.feeling?'기록 저장':'옷만 저장'} ${icon('check')}`;
 }
@@ -182,6 +209,7 @@ async function saveDraft(){
   saving=true;$$('#main button,#main input,#main select').forEach(b=>b.disabled=true);$('#save-record').textContent='저장 중…';
   try{const {dirty,existing,...value}=structuredClone(draft);value.updatedAt=new Date().toISOString();value.schemaVersion=2;value.recommendationVersion=RULE_VERSION;
     if(weather&&!stale&&!loading&&!value.weatherSnapshot){const row=value.date===dates().today?weather.today:value.date===dates().yesterday?weather.yesterday:null;if(row)value.weatherSnapshot={...structuredClone(row),queryContext:{...settings},fetchedAt:fetched,source:'Open-Meteo model'};}
+    attachSlotWeather(value);
     await store('readwrite',s=>s.put(value));const shareMsg=await syncShare(value);await readRecords();draft=null;saving=false;view=entry;render();window.scrollTo(0,0);toast('기록을 저장했어요.'+(shareMsg||' 언제든 수정할 수 있어요.'));
   }catch(e){saving=false;renderOutfit();$('#form-error').textContent=e.message+' 입력은 그대로 남아 있어요.';}
 }
@@ -190,20 +218,22 @@ function renderRecords(){const selected=records.filter(r=>filter==='all'||r.feel
   $$('[data-filter]').forEach(b=>b.onclick=()=>{filter=b.dataset.filter;renderRecords();});$$('[data-date]').forEach(b=>b.onclick=()=>{entry='records';detailDate=b.dataset.date;navigate('detail');});bind('#add-record',()=>{entry='records';startDraft(dates().today);});bind('#empty-record',()=>{entry='records';startDraft(dates().yesterday);});
 }
 function renderDetail(){const r=records.find(r=>r.date===detailDate);if(!r){view='records';render();return;}const e=r.experience;
-  $('#main').innerHTML=`<header class="large"><h1>${dateLabel(r.date)}</h1><p class="sub">${esc(r.clothes.join(' · '))}</p></header><section class="card pad"><div class="items">${r.clothes.map(c=>`<span>${shirt(c)}<small>${c}</small></span>`).join('')}</div>${r.photo?`<img class="detail-photo" src="${esc(r.photo)}" alt="저장한 옷차림 사진">`:''}</section><div class="group"><div class="row">실제 체감<span class="val"><span class="badge ${r.feeling||''}">${feelings[r.feeling]||'미입력'}</span></span></div><div class="row">느낀 장소<span class="val">${{outdoor:'밖에서',indoor:'실내에서'}[e?.place]||'미입력'}</span></div><div class="row">느낀 시각<span class="val">${Number.isInteger(e?.hour)?timeText(e.hour):'미입력'}</span></div><div class="row">있었던 지역<span class="val">${esc(e?.location?.name||'미입력')}</span></div>${communityEnabled?`<div class="row">익명 공유<span class="val">${r.sharedAt?'공유 중':'공유 안 함'}</span></div>`:''}</div><div class="group"><button class="row link" id="edit-record">기록 수정하기</button></div><p class="section-title small">날씨 조회 당시</p><div class="group"><div class="row note">조회 설정: ${esc(r.context?.name||'미입력')} · ${timeText(r.context?.hour??8)}${r.weatherSnapshot?`<br>저장할 때 모델 체감 ${num(r.weatherSnapshot.feels)}° · ${r.weatherSnapshot.date} ${timeText(r.weatherSnapshot.hour)}`:''}<br>조회 설정은 실제로 입은 시각·장소와 별개예요.</div></div><div class="group"><button class="row danger" id="delete-record">이 날짜 기록 삭제</button></div>`;
+  $('#main').innerHTML=`<header class="large"><h1>${dateLabel(r.date)}</h1><p class="sub">${esc(r.clothes.join(' · '))}</p></header><section class="card pad"><div class="items">${r.clothes.map(c=>`<span>${shirt(c)}<small>${c}</small></span>`).join('')}</div>${r.photo?`<img class="detail-photo" src="${esc(r.photo)}" alt="저장한 옷차림 사진">`:''}</section><div class="group"><div class="row">실제 체감<span class="val"><span class="badge ${r.feeling||''}">${feelings[r.feeling]||'미입력'}</span></span></div><div class="row">점심 체감<span class="val">${slotText(r,'noon')}</span></div><div class="row">저녁 체감<span class="val">${slotText(r,'evening')}</span></div><div class="row">느낀 장소<span class="val">${{outdoor:'밖에서',indoor:'실내에서'}[e?.place]||'미입력'}</span></div><div class="row">느낀 시각<span class="val">${Number.isInteger(e?.hour)?timeText(e.hour):'미입력'}</span></div><div class="row">있었던 지역<span class="val">${esc(e?.location?.name||'미입력')}</span></div>${communityEnabled?`<div class="row">익명 공유<span class="val">${r.sharedAt?'공유 중':'공유 안 함'}</span></div>`:''}</div><div class="group"><button class="row link" id="edit-record">기록 수정하기</button></div><p class="section-title small">날씨 조회 당시</p><div class="group"><div class="row note">조회 설정: ${esc(r.context?.name||'미입력')} · ${timeText(r.context?.hour??8)}${r.weatherSnapshot?`<br>저장할 때 모델 체감 ${num(r.weatherSnapshot.feels)}° · ${r.weatherSnapshot.date} ${timeText(r.weatherSnapshot.hour)}`:''}<br>조회 설정은 실제로 입은 시각·장소와 별개예요.</div></div><div class="group"><button class="row danger" id="delete-record">이 날짜 기록 삭제</button></div>`;
   bind('#edit-record',()=>startDraft(r.date));bind('#delete-record',async()=>{if(!await confirmBox('이 기록을 삭제할까요?',`${dateLabel(r.date)}의 옷·체감·사진이 삭제되며 되돌릴 수 없어요. 필요한 경우 설정에서 먼저 백업해 주세요.`,'기록 삭제'))return;try{await store('readwrite',s=>s.delete(r.date));let note='';if(r.sharedAt&&communityEnabled){try{await unshareOutfit(r.date);shareCount=null;clearCommunityCache();note=' 공유한 자료도 지웠어요.';}catch(e){note=' 공유 자료는 지우지 못했어요. 설정에서 공유 기록을 지울 수 있어요.';}}await readRecords();navigate('records');toast('선택한 기록을 삭제했어요.'+note);}catch(e){toast(e.message);}});
 }
 function renderSettings(){
   $('#main').innerHTML=`<header class="large"><h1>설정</h1></header>
-<p class="section-title small">날씨 기준</p><div class="group"><label class="row">지역<select id="city" class="row-select">${cityOptions(settings)}</select></label><label class="row">비교 시각<select id="hour" class="row-select">${hourOptions(settings.hour)}</select></label><button class="row link" id="gps">현재 위치 사용</button></div><p class="foot">어제와 오늘 같은 시각의 체감을 비교해요. 날씨 조회에 필요한 좌표만 Open-Meteo에 보내요.</p><p class="form-error" id="settings-error" role="alert"></p>
+<p class="section-title small">날씨 기준</p><div class="group"><label class="row">지역<select id="city" class="row-select">${cityOptions(settings)}</select></label><label class="row">비교 시각<select id="hour" class="row-select">${hourOptions(settings.hour)}</select></label><label class="row">점심 시각<select id="noon-hour" class="row-select">${hourOptions(settings.noonHour??13)}</select></label><label class="row">저녁 시각<select id="evening-hour" class="row-select">${hourOptions(settings.eveningHour??19)}</select></label><button class="row link" id="gps">현재 위치 사용</button></div><p class="foot">어제와 오늘 같은 시각의 체감을 비교해요. 점심·저녁은 아침보다 늦은 시각일 때만 써요. 날씨 조회에 필요한 좌표만 Open-Meteo에 보내요.</p><p class="form-error" id="settings-error" role="alert"></p>
 ${communityEnabled?`<p class="section-title small">커뮤니티</p><div class="group"><label class="row">익명 공유<input type="checkbox" class="switch" id="community-switch" ${hasConsent()?'checked':''}></label><div class="row">공유 중인 기록<span class="val" id="share-count">${shareCount??'—'}개</span></div><div class="row note" id="sensitivity-line">${esc(settingsSensitivity())}</div></div><p class="foot">옷 종류·추움/적당함/더움·체감온도와 시각·지역(9개 도시 또는 기타)·날짜를 보내요. 사진과 정확한 위치는 보내지 않고, 다른 사람에게는 날짜·기기 번호를 뺀 통계만 보여요.</p>`:'<p class="section-title small">커뮤니티</p><div class="group"><div class="row note">비슷한 체감의 사람들과 옷차림을 나누는 기능을 준비하고 있어요.</div></div>'}
 ${communityEnabled?`<p class="section-title small">이용 통계</p><div class="group"><label class="row">앱 사용 통계 보내기<input type="checkbox" class="switch" id="stats-switch" ${statsEnabled()?'checked':''}></label></div><p class="foot">앱을 연 날짜만 무작위 번호로 보내요. 이름·위치·옷 기록은 보내지 않고, 다시 찾는 사람이 얼마나 되는지 확인하는 데만 써요.</p>`:''}
 <p class="section-title small">내 기록 <em>${records.length}개</em></p><div class="group"><button class="row" id="export">백업 파일 받기${icon('chev')}</button><label class="row" for="import-backup">백업에서 가져오기${icon('chev')}</label>${communityEnabled?'<button class="row danger" id="delete-shares">공유 기록 모두 지우기</button>':''}</div><input id="import-backup" class="visually-hidden" type="file" accept="application/json,.json"><p class="foot">기록과 사진은 이 기기 브라우저에만 보관돼요. 같은 날짜의 기존 기록은 가져올 때 보존해요. ${communityMode==='dev'?'지금은 이 맥의 시험 서버에 연결돼 있어요.':'브라우저 데이터를 지우면 공유 기록을 앱에서 지울 수 없게 돼요.'}</p>
 <p class="section-title small">홈 화면에 추가</p><div class="group"><div class="row note">iPhone Safari: 공유 → 홈 화면에 추가<br>Android Chrome: 메뉴 → 앱 설치</div>${installPrompt?'<button class="row link" id="install">앱 설치하기</button>':''}</div>
 <p class="section-title small">추천에 대해</p><div class="group"><div class="row note">오늘 체감을 먼저 보고, 같은 시각·장소의 야외 기록이 있으면 한 겹 조정해요. 어제 더웠다면 어제보다 두껍게 권하지 않아요. 온도별 복장은 시험 기준이에요.</div></div>`;
-  $('#city').onchange=()=>{const v=$('#city').value,c=v==='custom'?settings:cities[Number(v)];setSettings({...c,hour:settings.hour,confirmed:true},true);};
+  $('#city').onchange=()=>{const v=$('#city').value,c=v==='custom'?settings:cities[Number(v)];setSettings({...settings,...c,confirmed:true},true);};
   $('#hour').onchange=()=>setSettings({...settings,hour:Number($('#hour').value),confirmed:true},true);
-  bind('#gps',()=>{if(!navigator.geolocation){$('#settings-error').textContent='지역을 목록에서 직접 선택해 주세요.';return;}$('#gps').disabled=true;$('#gps').textContent='현재 위치를 확인하고 있어요…';navigator.geolocation.getCurrentPosition(pos=>{if(view!=='settings')return;setSettings({name:'현재 위치',lat:pos.coords.latitude,lon:pos.coords.longitude,hour:settings.hour,confirmed:true},true);},()=>{if(view!=='settings')return;$('#gps').disabled=false;$('#gps').textContent='현재 위치 사용';$('#settings-error').textContent='위치를 확인하지 못했어요. 지역을 직접 선택해 주세요.';},{timeout:10000,maximumAge:300000});});
+  $('#noon-hour').onchange=()=>setSettings({...settings,noonHour:Number($('#noon-hour').value)},true);
+  $('#evening-hour').onchange=()=>setSettings({...settings,eveningHour:Number($('#evening-hour').value)},true);
+  bind('#gps',()=>{if(!navigator.geolocation){$('#settings-error').textContent='지역을 목록에서 직접 선택해 주세요.';return;}$('#gps').disabled=true;$('#gps').textContent='현재 위치를 확인하고 있어요…';navigator.geolocation.getCurrentPosition(pos=>{if(view!=='settings')return;setSettings({...settings,name:'현재 위치',lat:pos.coords.latitude,lon:pos.coords.longitude,confirmed:true},true);},()=>{if(view!=='settings')return;$('#gps').disabled=false;$('#gps').textContent='현재 위치 사용';$('#settings-error').textContent='위치를 확인하지 못했어요. 지역을 직접 선택해 주세요.';},{timeout:10000,maximumAge:300000});});
   bind('#export',()=>{const blob=new Blob([JSON.stringify({version:2,exportedAt:new Date().toISOString(),records,settings},null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`어제와비교해서_백업_${dates().today}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('백업 다운로드를 시작했어요.');});
   $('#import-backup').onchange=importBackup;
   if($('#stats-switch'))$('#stats-switch').onchange=e=>{setStats(e.target.checked);toast(e.target.checked?'이용 통계를 보내요.':'이용 통계를 보내지 않아요.');};

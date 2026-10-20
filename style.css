@@ -147,3 +147,10 @@ dialog.sheet .primary{width:100%;margin-top:16px;min-height:50px}
 .btn-primary:disabled{opacity:1;background:var(--fill2);color:var(--label3);box-shadow:none}
 .clothes-tile span{word-break:keep-all;text-align:center;line-height:1.2}
 @media(max-width:360px){.clothes-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+/* v6 아침·점심·저녁 */
+.plan{display:flex;gap:6px;align-items:flex-start;font-size:14px;font-weight:600;color:var(--label);background:var(--accent-soft);border-radius:10px;padding:8px 10px;margin:-2px 0 10px;line-height:1.45}.plan .icon{width:17px;height:17px;color:var(--accent);margin-top:1px}
+.plan.calm{background:var(--fill);color:var(--label2);font-weight:500}
+.row.slot-row{min-height:40px;font-size:14px;color:var(--label2)}.slot-row .val b{color:var(--label);font-weight:600}
+.slot-q{display:grid;gap:6px;margin-top:10px}.slot-q>span{font-size:13px;font-weight:600;color:var(--label2);margin-left:4px}.quick .slot-q:first-of-type{margin-top:0}
+.row.slot-q{display:grid;gap:8px;margin-top:0}.row.slot-q>span{margin-left:0;font-size:15px;color:var(--label);font-weight:500}
+.segment.mini{margin-top:0}.segment.mini button{font-size:13px;padding:6px 0;min-height:32px}

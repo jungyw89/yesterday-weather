@@ -38,15 +38,17 @@ export function quickPresets(feels){
   return LADDER.slice(start,start+4).map(c=>[...c]);
 }
 // 빠른 기록: 질문 문구가 "어제 {시각} {지역}, 밖에서"로 명시하므로 그 맥락으로 저장
-export function quickRecord({clothes,feeling,settings,yesterday,weatherRow,fetchedAt,now=new Date()}){
+export function quickRecord({clothes,feeling,settings,yesterday,weatherRow,slotRows=null,fetchedAt,now=new Date()}){
   const at=now.toISOString();
   const rec={date:yesterday,clothes:sorted(clothes),feeling,photo:null,context:{name:settings.name,lat:settings.lat,lon:settings.lon,hour:settings.hour},
     experience:{place:'outdoor',hour:settings.hour,location:{name:settings.name,lat:settings.lat,lon:settings.lon}},
     createdAt:at,updatedAt:at,schemaVersion:2,recommendationVersion:RULE_VERSION,quick:true};
   if(weatherRow?.date===yesterday&&finite(weatherRow.feels))rec.weatherSnapshot={...weatherRow,queryContext:{...rec.context},fetchedAt,source:'Open-Meteo model'};
+  if(rec.weatherSnapshot&&slotRows){const sl={};for(const k of ['noon','evening'])if(slotRows[k]?.date===yesterday&&finite(slotRows[k].feels))sl[k]={hour:slotRows[k].hour,feels:slotRows[k].feels};if(Object.keys(sl).length)rec.weatherSnapshot.slots=sl;}
+  rec.slots={noon:{feeling:null},evening:{feeling:null}};
   return rec;
 }
 // 가족에게 보내는 문구 (어제 옷 기준 표현은 받는 사람이 모르므로 오늘 옷 전체로)
 export function shareText(v,place,url){
-  return `${place} 오늘 아침, ${v.headline}.\n${v.full}${v.rain?' · 우산도 챙겨요':''}\n${v.closing}\n\n${url}`;
+  return `${place} 오늘 아침, ${v.headline}.\n${v.full}${v.rain?' · 우산도 챙겨요':''}${v.plan?`\n${v.plan}`:''}\n${v.closing}\n\n${url}`;
 }
