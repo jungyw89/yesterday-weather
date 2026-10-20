@@ -1,4 +1,4 @@
-const CACHE='yesterday-weather-shell-v4';
+const CACHE='yesterday-weather-shell-v5';
 const FILES=['./','index.html','style.css','app.mjs','core.mjs','visuals.mjs','community.mjs','community-core.mjs','community-config.mjs','quick-core.mjs','share-card.mjs','manifest.webmanifest','icon.svg','icon-192.png','icon-512.png'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(FILES)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('yesterday-weather-shell-')&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));

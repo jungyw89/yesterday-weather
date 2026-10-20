@@ -11,13 +11,13 @@ function write(key,value){try{value===null?localStorage.removeItem(key):localSto
 export function deviceId(){let id=read(DEVICE);if(!/^[0-9a-f-]{36}$/.test(id||'')){id=crypto.randomUUID?crypto.randomUUID():'10000000-1000-4000-8000-100000000000'.replace(/[018]/g,c=>(c^crypto.getRandomValues(new Uint8Array(1))[0]&15>>c/4).toString(16));write(DEVICE,id);}return id;}
 export const hasConsent=()=>read(CONSENT)==='yes';
 export const setConsent=on=>write(CONSENT,on?'yes':null);
-async function rpc(name,args){
+async function rpc(name,args,withDevice=true){
   if(!api)throw Error('커뮤니티 서버가 아직 연결되지 않았어요.');
   const headers={'Content-Type':'application/json'};
   if(api.key){headers.apikey=api.key;if(api.key.split('.').length===3)headers.Authorization='Bearer '+api.key;}
   const ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),10000);
   try{
-    const res=await fetch(api.base+name,{method:'POST',headers,body:JSON.stringify({p_device:deviceId(),...args}),signal:ctrl.signal});
+    const res=await fetch(api.base+name,{method:'POST',headers,body:JSON.stringify(withDevice?{p_device:deviceId(),...args}:args),signal:ctrl.signal});
     if(!res.ok){let msg='';try{msg=(await res.json()).message||'';}catch{}throw Error(msg==='date out of range'?'최근 7일 이내 기록만 공유돼요.':'커뮤니티 서버가 요청을 받지 않았어요.');}
     return res.status===204?null:await res.json();
   }catch(e){if(e.name==='AbortError'||e.name==='TypeError')throw Error('커뮤니티 서버에 연결하지 못했어요.');throw e;}
@@ -33,3 +33,14 @@ export async function communityRows(force=false){
   const rows=await rpc('community_outfits',{});cache={rows,at:Date.now()};return rows;
 }
 export function clearCommunityCache(){cache=null;}
+
+// 이용 통계: 앱을 연 날짜만 (공유용 번호와 다른 무작위 번호). 공개 주소에서만, 하루 한 번.
+const STATS_ID='yesterday-weather-stats-id-v1',STATS_OFF='yesterday-weather-stats-off-v1',STATS_LAST='yesterday-weather-stats-last-v1';
+export const statsEnabled=()=>read(STATS_OFF)!=='yes';
+export const setStats=on=>write(STATS_OFF,on?null:'yes');
+export async function logOpen(today){
+  if(!api||!statsEnabled()||read(STATS_LAST)===today)return false;
+  if(local&&!location.search.includes('stats-test'))return false;
+  let id=read(STATS_ID);if(!/^[0-9a-f-]{36}$/.test(id||'')){id=crypto.randomUUID?crypto.randomUUID():deviceId().replace(/^.{8}/,Math.random().toString(16).slice(2,10).padEnd(8,'0'));write(STATS_ID,id);}
+  try{await rpc('log_open',{p_stats:id},false);write(STATS_LAST,today);return true;}catch{return false;}
+}
