@@ -1,13 +1,11 @@
 // 커뮤니티 공유·추천 계산 (네트워크 없음, 자동 검사 대상)
-import {groups,cities,feelings,finite,shiftDate,dates} from './core.mjs';
+import {groups,cities,feelings,finite,shiftDate,dates,WARMTH} from './core.mjs';
 export const COMMUNITY_VERSION='1.0';
 export const SHARE_DAYS=7;          // 서버도 같은 기간만 받음
 export const MIN_OK=5;              // 이 수보다 적으면 커뮤니티 추천을 보여주지 않음
 export const MIN_MINE=5;            // 체질 보정에 필요한 내 기록 수
 export const MATCH_RANGE=2;         // 비슷한 체감 = ±2°
 const order=groups.flatMap(g=>g.items);
-// 옷 한 벌의 보온 점수 (대략적인 겹 수)
-const WARMTH={'반팔':1,'긴팔':2,'셔츠':2,'니트':3,'긴바지':2,'긴 청바지':2,'반바지':0,'치마':1,'원피스':2,'가디건':2,'재킷':3,'코트':5,'패딩':6};
 export function canonicalClothes(clothes){return [...new Set(clothes)].filter(c=>order.includes(c)).sort((a,b)=>order.indexOf(a)-order.indexOf(b));}
 export function warmth(clothes){return canonicalClothes(clothes).reduce((s,c)=>s+WARMTH[c],0);}
 export function regionOf(context){const c=cities.find(c=>c.lat===context?.lat&&c.lon===context?.lon);return c?c.name:'기타';}

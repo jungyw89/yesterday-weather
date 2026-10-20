@@ -6,7 +6,7 @@ export const cities = [
 export const groups=[{name:'상의',items:['반팔','긴팔','셔츠','니트']},{name:'하의 · 한 벌',items:['긴바지','긴 청바지','반바지','치마','원피스']},{name:'겉옷',items:['가디건','재킷','코트','패딩']}];
 export const feelings={cold:'추움',ok:'적당함',hot:'더움'};
 export const outers=['가디건','재킷','코트','패딩'];
-export const RULE_VERSION='2.0';
+export const RULE_VERSION='2.1';
 export const finite=Number.isFinite;
 export function shiftDate(date,amount){const d=new Date(date+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+amount);return d.toISOString().slice(0,10);}
 export function dates(now=new Date()) {const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(now);const p=Object.fromEntries(parts.map(x=>[x.type,x.value]));const today=`${p.year}-${p.month}-${p.day}`;return {today,yesterday:shiftDate(today,-1)};}
@@ -34,6 +34,9 @@ export function experienceLevel(record,settings,today,weather){
   return finite(weather?.today?.feels)&&finite(weather?.yesterday?.feels)?'personal':'reference';
 }
 export function direction(feeling,delta){const band=delta< -2?0:delta>2?2:1;return {cold:['add','add','base'],ok:['add','reuse','reduce'],hot:['base','reduce','reduce']}[feeling]?.[band]||'base';}
+// 옷 한 벌의 보온 점수 (대략적인 겹 수)
+export const WARMTH={'반팔':1,'긴팔':2,'셔츠':2,'니트':3,'긴바지':2,'긴 청바지':2,'반바지':0,'치마':1,'원피스':2,'가디건':2,'재킷':3,'코트':5,'패딩':6};
+export function warmth(clothes){return [...new Set(clothes)].reduce((s,c)=>s+(WARMTH[c]??0),0);}
 export function baseOutfit(a){
   if(a<10)return {clothes:['니트','긴바지','코트'],outer:'따뜻한 외투',action:'wear'};
   if(a<16)return {clothes:['긴팔','긴바지','재킷'],outer:'보온 겉옷',action:'wear'};
@@ -50,7 +53,11 @@ export function recommend(weather,record,settings,today=dates().today){
   if(level==='personal'){
     const d=direction(record.feeling,result.delta);
     result.reason=`어제 ${feelings[record.feeling]}으로 남긴 야외 경험을 반영했어요.`;
-    if(d==='reduce'&&a<16)result.reason='어제 더웠어도 오늘은 체감이 낮아 겉옷을 입는 쪽을 권해요.';
+    if(d==='reduce'&&a<16){
+      // 어제 더웠던 차림보다 두껍게 권하지 않는다 (겉옷은 유지)
+      if(complete(record.clothes)&&record.clothes.some(c=>outers.includes(c))&&warmth(record.clothes)<warmth(result.clothes)&&warmth(record.clothes)>=warmth(result.clothes)-2){result.clothes=[...new Set(record.clothes)];result.action='wear';result.reason='어제 더웠던 차림보다 두껍게 입지 않도록 어제 옷을 기준으로 했어요. 오늘은 체감이 낮아 겉옷은 입고 출발하세요.';}
+      else result.reason='어제 더웠어도 오늘은 체감이 낮아 겉옷을 입는 쪽을 권해요.';
+    }
     else if(d==='reduce'){
       result.clothes=result.clothes.filter(c=>!outers.includes(c));result.action='leave';
       if(a>=21)result.clothes=result.clothes.map(c=>['긴팔','니트','셔츠'].includes(c)?'반팔':c);
