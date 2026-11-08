@@ -162,3 +162,21 @@ dialog.sheet .primary{width:100%;margin-top:16px;min-height:50px}
 .umbrella.skip>.icon{color:var(--label3)}.umbrella.skip b{font-weight:600}
 .umbrella .remind{color:var(--warm);font-weight:600;margin-top:2px}
 .umbrella small,.umbrella b,.plan span,.why{word-break:keep-all}
+
+/* v8.1 우산 먼저: 오늘 화면 맨 위 큰 결론 + 귀가까지 시간별 비 막대 */
+.uhero{--rain:#2f6fa8;border-radius:16px;padding:14px 16px 12px;margin-bottom:12px;background:var(--card);box-shadow:var(--shadow)}
+@media(prefers-color-scheme:dark){.uhero{--rain:#2a6aa6}}
+.uhero-top{display:flex;align-items:center;gap:12px}
+.uhero-icon{display:grid;place-items:center;width:52px;height:52px;border-radius:50%;flex-shrink:0;background:var(--fill)}.uhero-icon .icon{width:30px;height:30px;stroke-width:2}
+.uhero-big{font-size:26px;line-height:1.2;font-weight:800;letter-spacing:-.04em;word-break:keep-all}
+.uhero-sub{font-size:15px;margin-top:2px;word-break:keep-all;opacity:.85}
+.ustrip{display:flex;align-items:flex-end;gap:3px;height:34px;margin-top:12px}
+.ustrip i{flex:1;min-width:0;border-radius:3px 3px 1px 1px;background:var(--fill2)}
+.ustrip i.may{background:color-mix(in srgb,var(--cold) 45%,var(--fill2))}.ustrip i.wet{background:var(--cold)}
+.ustrip-label{display:flex;justify-content:space-between;font-size:12px;margin-top:4px;opacity:.75}
+.uhero-remind{margin-top:8px;font-size:14px;font-weight:700;word-break:keep-all}
+.uhero.take{background:var(--rain);color:#fff}
+.uhero.take .uhero-icon{background:#ffffff2e}.uhero.take .ustrip i{background:#ffffff40}.uhero.take .ustrip i.may{background:#ffffff8c}.uhero.take .ustrip i.wet{background:#fff}
+.uhero.take .uhero-remind{color:#ffe08a}
+.uhero.maybe{background:var(--cold-soft)}.uhero.maybe .uhero-icon{background:var(--card);color:var(--cold)}.uhero.maybe .uhero-big{color:var(--cold)}
+.uhero.skip .uhero-icon{background:var(--accent-soft);color:var(--accent)}.uhero.skip .uhero-big{font-size:22px}
